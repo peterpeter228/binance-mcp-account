@@ -7,6 +7,7 @@ import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } fr
 import dotenv from 'dotenv';
 import { BinanceClient } from './api/client.js';
 import { logger } from './utils/logger.js';
+import { AuthTokenHandler } from './utils/auth.js';
 import { createAccountTools, handleAccountTool } from './tools/account.js';
 import { createSpotTools, handleSpotTool } from './tools/spot.js';
 import { createFuturesTools, handleFuturesTool } from './tools/futures.js';
@@ -17,6 +18,10 @@ dotenv.config();
 // HTTP模式下，API配置来自客户端连接；stdio模式下来自环境变量
 const serverMode = process.env.SERVER_MODE || 'stdio';
 let binanceClient = null;
+// HTTP模式下存储从authorization token解析的凭据
+let httpModeCredentials = null;
+// 从环境变量获取服务器端配置
+const serverTestnet = process.env.BINANCE_TESTNET === 'true';
 if (serverMode === 'stdio') {
     // stdio模式：验证必要的环境变量
     const requiredEnvVars = ['BINANCE_API_KEY', 'BINANCE_SECRET_KEY'];
@@ -87,14 +92,11 @@ const getAllTools = () => {
 };
 // 处理工具调用
 const handleTool = async (name, args) => {
-    // 在HTTP模式下，检查是否需要从客户端配置中初始化Binance客户端
+    // 在HTTP模式下，检查是否需要从authorization token中初始化Binance客户端
     if (!binanceClient && serverMode === 'http') {
-        // 尝试从环境变量中获取API配置（这些由Claude Desktop通过SSE连接传递）
-        const apiKey = process.env.BINANCE_API_KEY;
-        const apiSecret = process.env.BINANCE_SECRET_KEY;
-        const testnet = process.env.BINANCE_TESTNET === 'true';
-        if (apiKey && apiSecret) {
-            const success = initializeBinanceClient(apiKey, apiSecret, testnet);
+        if (httpModeCredentials) {
+            const success = initializeBinanceClient(httpModeCredentials.apiKey, httpModeCredentials.apiSecret, serverTestnet // 使用服务器端环境变量配置
+            );
             if (!success) {
                 return {
                     success: false,
@@ -105,7 +107,7 @@ const handleTool = async (name, args) => {
         else {
             return {
                 success: false,
-                error: '❌ 缺少Binance API配置，请在Claude Desktop的MCP配置中设置BINANCE_API_KEY和BINANCE_SECRET_KEY',
+                error: '❌ 缺少Binance API配置，请在Claude Desktop的MCP配置中设置正确的authorization_token (格式: apiKey.secretKey)',
             };
         }
     }
@@ -253,6 +255,27 @@ async function main() {
             // 创建HTTP服务器
             const httpServer = http.createServer((req, res) => {
                 if (req.method === 'GET' && req.url === '/message') {
+                    // 处理authorization token
+                    const authHeader = req.headers.authorization;
+                    if (authHeader) {
+                        const credentials = AuthTokenHandler.parseCredentials(authHeader);
+                        if (credentials) {
+                            httpModeCredentials = credentials;
+                            logger.info(`Authorization token已解析，测试网模式: ${serverTestnet ? '是' : '否'}`);
+                        }
+                        else {
+                            logger.warn('无效的authorization token格式，期望格式: apiKey.secretKey');
+                            res.writeHead(401);
+                            res.end('Unauthorized: Invalid authorization token format. Expected: apiKey.secretKey');
+                            return;
+                        }
+                    }
+                    else {
+                        logger.warn('缺少authorization token');
+                        res.writeHead(401);
+                        res.end('Unauthorized: Missing authorization token');
+                        return;
+                    }
                     // SSE连接处理
                     const transport = new SSEServerTransport('/message', res);
                     server.connect(transport).catch((error) => {
