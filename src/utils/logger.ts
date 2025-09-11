@@ -16,7 +16,7 @@ class Logger {
   constructor(level: string = 'info', logFile?: string) {
     this.level = this.parseLogLevel(level);
     this.logFile = logFile || path.join(process.cwd(), 'logs/binance-mcp-server.log');
-    this.initializeLogFile();
+    // this.initializeLogFile();
   }
 
   private parseLogLevel(level: string): LogLevel {
@@ -73,7 +73,7 @@ class Logger {
 
       // 写入文件
       if (this.logStream) {
-        // this.logStream.write(fullMessage);
+        this.logStream.write(fullMessage);
       }
     }
   }
