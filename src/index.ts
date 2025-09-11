@@ -9,7 +9,6 @@ import dotenv from 'dotenv';
 
 import { BinanceClient } from './api/client.js';
 import { logger } from './utils/logger.js';
-import { AuthTokenHandler, BinanceCredentials } from './utils/auth.js';
 import { createAccountTools, handleAccountTool } from './tools/account.js';
 import { createSpotTools, handleSpotTool } from './tools/spot.js';
 import { createFuturesTools, handleFuturesTool } from './tools/futures.js';
@@ -22,12 +21,6 @@ dotenv.config();
 // HTTP模式下，API配置来自客户端连接；stdio模式下来自环境变量
 const serverMode = process.env.SERVER_MODE || 'stdio';
 let binanceClient: BinanceClient | null = null;
-
-// HTTP模式下存储从authorization token解析的凭据
-let httpModeCredentials: BinanceCredentials | null = null;
-
-// 从环境变量获取服务器端配置
-const serverTestnet = process.env.BINANCE_TESTNET === 'true';
 
 if (serverMode === 'stdio') {
   // stdio模式：验证必要的环境变量
@@ -106,14 +99,15 @@ const getAllTools = () => {
 
 // 处理工具调用
 const handleTool = async (name: string, args: any) => {
-  // 在HTTP模式下，检查是否需要从authorization token中初始化Binance客户端
+  // 在HTTP模式下，检查是否需要从客户端配置中初始化Binance客户端
   if (!binanceClient && serverMode === 'http') {
-    if (httpModeCredentials) {
-      const success = initializeBinanceClient(
-        httpModeCredentials.apiKey,
-        httpModeCredentials.apiSecret,
-        serverTestnet  // 使用服务器端环境变量配置
-      );
+    // 尝试从环境变量中获取API配置（这些由Claude Desktop通过SSE连接传递）
+    const apiKey = process.env.BINANCE_API_KEY;
+    const apiSecret = process.env.BINANCE_SECRET_KEY;
+    const testnet = process.env.BINANCE_TESTNET === 'true';
+
+    if (apiKey && apiSecret) {
+      const success = initializeBinanceClient(apiKey, apiSecret, testnet);
       if (!success) {
         return {
           success: false,
@@ -123,7 +117,7 @@ const handleTool = async (name: string, args: any) => {
     } else {
       return {
         success: false,
-        error: '❌ 缺少Binance API配置，请在Claude Desktop的MCP配置中设置正确的authorization_token (格式: apiKey.secretKey)',
+        error: '❌ 缺少Binance API配置，请在Claude Desktop的MCP配置中设置BINANCE_API_KEY和BINANCE_SECRET_KEY',
       };
     }
   }
@@ -194,8 +188,25 @@ const handleTool = async (name: string, args: any) => {
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    const tools = getAllTools();
-    logger.info(`返回 ${tools.length} 个可用工具`);
+    const allTools = getAllTools();
+    logger.info(`返回 ${allTools.length} 个可用工具`);
+
+    // 明确映射每个工具的属性，确保 inputSchema 正确传递
+    const tools = allTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
+
+    logger.debug(
+      '工具列表详情:',
+      tools.map((t) => ({
+        name: t.name,
+        hasInputSchema: !!t.inputSchema,
+        inputSchemaKeys: t.inputSchema ? Object.keys(t.inputSchema) : [],
+      })),
+    );
+
     return { tools };
   } catch (error) {
     logger.error('获取工具列表失败:', error);
@@ -288,61 +299,38 @@ async function main() {
       await server.connect(transport);
       logger.info('MCP 服务器已连接 (stdio模式)，等待请求...');
     } else {
-      // HTTP模式：延迟初始化，等待客户端连接时提供API配置
-      logger.info('Binance MCP HTTP 服务器启动');
-      logger.info('等待Claude Desktop客户端连接并提供API配置...');
-
-      // HTTP SSE 传输模式
-      const port = parseInt(process.env.PORT || '3000');
-      const host = process.env.HOST || '0.0.0.0';
-
-      // 创建HTTP服务器
-      const httpServer = http.createServer((req, res) => {
-        if (req.method === 'GET' && req.url === '/message') {
-          // 处理authorization token
-          const authHeader = req.headers.authorization;
-          if (authHeader) {
-            const credentials = AuthTokenHandler.parseCredentials(authHeader);
-            if (credentials) {
-              httpModeCredentials = credentials;
-              logger.info(`Authorization token已解析，测试网模式: ${serverTestnet ? '是' : '否'}`);
-            } else {
-              logger.warn('无效的authorization token格式，期望格式: apiKey.secretKey');
-              res.writeHead(401);
-              res.end('Unauthorized: Invalid authorization token format. Expected: apiKey.secretKey');
-              return;
-            }
-          } else {
-            logger.warn('缺少authorization token');
-            res.writeHead(401);
-            res.end('Unauthorized: Missing authorization token');
-            return;
-          }
-
-          // SSE连接处理
-          const transport = new SSEServerTransport('/message', res);
-          server.connect(transport).catch((error) => {
-            logger.error('SSE连接失败:', error);
-            res.writeHead(500);
-            res.end('Internal Server Error');
-          });
-        } else if (req.method === 'POST' && req.url === '/message') {
-          // POST消息处理 - 需要根据sessionId路由
-          res.writeHead(405);
-          res.end('Method Not Allowed - Use SSE for message transport');
-        } else {
-          res.writeHead(404);
-          res.end('Not Found');
-        }
-      });
-
-      // 启动HTTP服务器
-      httpServer.listen(port, host, () => {
-        logger.info(`HTTP SSE 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/message`);
-        logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
-        logger.info(`   "command": "sse",`);
-        logger.info(`   "args": ["http://${host}:${port}/message"]`);
-      });
+      // // HTTP模式：延迟初始化，等待客户端连接时提供API配置
+      // logger.info('Binance MCP HTTP 服务器启动');
+      // logger.info('等待Claude Desktop客户端连接并提供API配置...');
+      // // HTTP SSE 传输模式
+      // const port = parseInt(process.env.PORT || '3000');
+      // const host = process.env.HOST || '0.0.0.0';
+      // // 创建HTTP服务器
+      // const httpServer = http.createServer((req, res) => {
+      //   if (req.method === 'GET' && req.url === '/message') {
+      //     // SSE连接处理
+      //     const transport = new SSEServerTransport('/message', res);
+      //     server.connect(transport).catch((error) => {
+      //       logger.error('SSE连接失败:', error);
+      //       res.writeHead(500);
+      //       res.end('Internal Server Error');
+      //     });
+      //   } else if (req.method === 'POST' && req.url === '/message') {
+      //     // POST消息处理 - 需要根据sessionId路由
+      //     res.writeHead(405);
+      //     res.end('Method Not Allowed - Use SSE for message transport');
+      //   } else {
+      //     res.writeHead(404);
+      //     res.end('Not Found');
+      //   }
+      // });
+      // // 启动HTTP服务器
+      // httpServer.listen(port, host, () => {
+      //   logger.info(`HTTP SSE 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/message`);
+      //   logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
+      //   logger.info(`   "command": "sse",`);
+      //   logger.info(`   "args": ["http://${host}:${port}/message"]`);
+      // });
     }
   } catch (error) {
     logger.error('启动服务器失败:', error);

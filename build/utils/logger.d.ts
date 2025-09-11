@@ -6,13 +6,17 @@ export declare enum LogLevel {
 }
 declare class Logger {
     private level;
-    constructor(level?: string);
+    private logFile;
+    private logStream;
+    constructor(level?: string, logFile?: string);
     private parseLogLevel;
+    private initializeLogFile;
     private log;
     debug(message: string, ...args: any[]): void;
     info(message: string, ...args: any[]): void;
     warn(message: string, ...args: any[]): void;
     error(message: string, ...args: any[]): void;
+    close(): void;
 }
 export declare const logger: Logger;
 export {};
