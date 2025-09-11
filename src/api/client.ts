@@ -20,7 +20,7 @@ export class BinanceClient {
       wsBase: config.testnet ? 'wss://testnet.binance.vision' : 'wss://stream.binance.com:9443',
     });
 
-    logger.info(`Binance客户端初始化完成 - ${config.testnet ? '测试网' : '主网'}`);
+    // logger.info(`Binance客户端初始化完成 - ${config.testnet ? '测试网' : '主网'}`);
   }
 
   getClient() {

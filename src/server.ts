@@ -146,10 +146,10 @@ function getOrCreateBinanceClient(
   try {
     const client = new BinanceClient(binanceConfig);
     sessionClients.set(sessionId, client);
-    logger.info(`为会话 ${sessionId} 创建 Binance 客户端成功`);
+    // logger.info(`为会话 ${sessionId} 创建 Binance 客户端成功`);
     return client;
   } catch (error) {
-    logger.error(`为会话 ${sessionId} 创建 Binance 客户端失败:`, error);
+    // logger.error(`为会话 ${sessionId} 创建 Binance 客户端失败:`, error);
     throw new Error('Binance 客户端初始化失败');
   }
 }
@@ -449,11 +449,11 @@ app.get('/sse', authenticateRequest, async (req, res) => {
     res.on('close', () => {
       delete transports.sse[sessionId];
       sessionClients.delete(sessionId);
-      logger.info(`SSE 会话 ${sessionId} 已关闭`);
+      //   logger.info(`SSE 会话 ${sessionId} 已关闭`);
     });
 
     await server.connect(transport);
-    logger.info(`SSE 会话 ${sessionId} 已建立`);
+    // logger.info(`SSE 会话 ${sessionId} 已建立`);
   } catch (error) {
     logger.error('SSE 连接失败:', error);
     res.status(500).json({ error: '服务器内部错误' });
