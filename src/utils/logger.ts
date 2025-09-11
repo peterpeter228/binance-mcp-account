@@ -73,7 +73,7 @@ class Logger {
 
       // 写入文件
       if (this.logStream) {
-        this.logStream.write(fullMessage);
+        // this.logStream.write(fullMessage);
       }
     }
   }
