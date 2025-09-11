@@ -4,6 +4,7 @@ import express from 'express';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
+import { z } from 'zod';
 import dotenv from 'dotenv';
 import { BinanceClient } from './api/client.js';
 import { logger } from './utils/logger.js';
@@ -15,6 +16,66 @@ import { createAdvancedTools, handleAdvancedTool } from './tools/advanced.js';
 
 // 加载环境变量
 dotenv.config();
+
+// 将 JSON Schema 转换为 ZodRawShape 的辅助函数
+function convertJsonSchemaToZodRawShape(jsonSchema: any): z.ZodRawShape {
+  if (!jsonSchema || typeof jsonSchema !== 'object') {
+    return {};
+  }
+
+  const { type, properties, required, ...rest } = jsonSchema;
+
+  if (type === 'object' && properties) {
+    const zodShape: z.ZodRawShape = {};
+
+    for (const [key, prop] of Object.entries(properties)) {
+      const isRequired = required && required.includes(key);
+      const zodProp = convertPropertyToZod(prop as any);
+
+      if (isRequired) {
+        zodShape[key] = zodProp;
+      } else {
+        zodShape[key] = zodProp.optional();
+      }
+    }
+
+    return zodShape;
+  }
+
+  return {};
+}
+
+// 将 JSON Schema 属性转换为 Zod schema
+function convertPropertyToZod(prop: any): z.ZodSchema {
+  if (!prop || typeof prop !== 'object') {
+    return z.any();
+  }
+
+  const { type, enum: enumValues, ...rest } = prop;
+
+  switch (type) {
+    case 'string':
+      if (enumValues && Array.isArray(enumValues) && enumValues.length > 0) {
+        return z.enum(enumValues as [string, ...string[]]);
+      }
+      return z.string();
+    case 'number':
+      return z.number();
+    case 'integer':
+      return z.number().int();
+    case 'boolean':
+      return z.boolean();
+    case 'array':
+      return z.array(z.any());
+    case 'object':
+      if (prop.properties) {
+        return z.object(convertJsonSchemaToZodRawShape(prop));
+      }
+      return z.object({});
+    default:
+      return z.any();
+  }
+}
 
 // 存储每个会话的 Binance 客户端
 const sessionClients = new Map<string, BinanceClient>();
@@ -188,7 +249,11 @@ function registerGlobalTools() {
 
       try {
         logger.info(`注册工具: ${tool.name}, 描述: ${tool.description}, 输入模式: ${JSON.stringify(tool.inputSchema)}`);
-        server.tool(tool.name, tool.description || '', tool.inputSchema || {}, async (args, extra) => {
+
+        // 将 JSON Schema 转换为 ZodRawShape
+        const zodShape = convertJsonSchemaToZodRawShape(tool.inputSchema || {});
+
+        server.tool(tool.name, tool.description || '', zodShape, async (args, extra) => {
           try {
             // 从传输对象中获取会话信息
             let sessionId: string | undefined;

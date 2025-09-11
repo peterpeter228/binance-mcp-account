@@ -12,15 +12,16 @@
 
 ## 🔧 配置说明
 
-### 1. 直接启动服务器方式
+### 1. stdio 使用方式
 
 ```json
 "binance-mcp-server": {
     "command": "node",
-    "args": ["/Users/april/workspace/work/dex/meme-hand/binance-mcp-server/scripts/start-server.js"],
+    "args": ["/Users/april/workspace/work/dex/meme-hand/binance-mcp-server/build/index.js"],
     "env": {
-        "PORT": "3000",
-        "HOST": "0.0.0.0",
+        "BINANCE_API_KEY": "",
+        "BINANCE_SECRET_KEY": "",
+        "BINANCE_TESTNET": "false",
         "LOG_LEVEL": "info"
     }
 }
@@ -38,7 +39,7 @@
 "binance-sse": {
     "url": "http://localhost:3000/sse",
     "headers": {
-        "Authorization": "Cv6BeanW3oOBa44TVwez8fHqdinoftSOeKYCUiQxhEx3Xx5fnvqTri9hHfB5II3K:pH2ERT8kNE5SXGzU6P02e49N11vN86HqjNBE2WxyOmPuYKjf0VBwpID5doGtEqPW"
+        "Authorization": "{API_KEY}:{SECRET_KEY}"
     }
 }
 ```
