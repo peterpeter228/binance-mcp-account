@@ -347,16 +347,6 @@ function registerGlobalTools() {
   }
 }
 
-// 注册工具列表处理器，确保 inputSchema 正确传递
-function registerToolListHandler() {
-  try {
-    logger.info('McpServer 使用内置工具列表处理，无需自定义处理器');
-    logger.info('工具列表将通过 server.tool() 注册的工具自动生成');
-  } catch (error) {
-    logger.error('注册工具列表处理器失败:', error);
-  }
-}
-
 // 创建 Express 应用
 const app = express();
 app.use(express.json());
@@ -550,4 +540,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-export { app, server, registerGlobalTools, registerToolListHandler };
+export { app, server, registerGlobalTools };

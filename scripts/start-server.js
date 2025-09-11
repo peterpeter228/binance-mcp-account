@@ -4,11 +4,10 @@ import { app } from '../build/server.js';
 import { logger } from '../build/utils/logger.js';
 
 // 全局注册工具（只注册一次）
-import { registerGlobalTools, registerToolListHandler } from '../build/server.js';
+import { registerGlobalTools } from '../build/server.js';
 
 // 注册工具和工具列表处理器
 registerGlobalTools();
-registerToolListHandler();
 
 const port = parseInt(process.env.PORT || '3000');
 const host = process.env.HOST || '0.0.0.0';
