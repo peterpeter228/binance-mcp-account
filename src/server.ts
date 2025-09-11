@@ -248,7 +248,7 @@ function registerGlobalTools() {
       }
 
       try {
-        logger.info(`注册工具: ${tool.name}, 描述: ${tool.description}, 输入模式: ${JSON.stringify(tool.inputSchema)}`);
+        // logger.info(`注册工具: ${tool.name}, 描述: ${tool.description}, 输入模式: ${JSON.stringify(tool.inputSchema)}`);
 
         // 将 JSON Schema 转换为 ZodRawShape
         const zodShape = convertJsonSchemaToZodRawShape(tool.inputSchema || {});
@@ -284,7 +284,7 @@ function registerGlobalTools() {
 
             const binanceClient = getOrCreateBinanceClient(sessionId, binanceAuth.apiKey, binanceAuth.secret);
 
-            logger.info(`执行工具: ${tool.name}`, args ? JSON.stringify(args, null, 2) : '');
+            logger.info(`执行工具: ${tool.name}-${sessionId}`, args ? JSON.stringify(args, null, 2) : '');
 
             const result = await handleTool(tool.name, args || {}, binanceClient);
 
@@ -307,7 +307,7 @@ function registerGlobalTools() {
               };
             }
 
-            logger.info(`工具执行成功: ${tool.name}`);
+            logger.info(`工具执行成功-${sessionId}: ${tool.name}`);
             return {
               content: [
                 {
@@ -481,7 +481,7 @@ app.post('/messages', async (req, res) => {
 async function main() {
   try {
     // 工具已经在模块加载时注册，这里不需要重复注册
-    // registerGlobalTools();
+    registerGlobalTools();
     // logger.info(`已注册 ${registeredTools.size} 个工具`);
 
     const port = parseInt(process.env.PORT || '3000');
