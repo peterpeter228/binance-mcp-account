@@ -188,8 +188,25 @@ const handleTool = async (name: string, args: any) => {
 // 注册工具列表处理器
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    const tools = getAllTools();
-    logger.info(`返回 ${tools.length} 个可用工具`);
+    const allTools = getAllTools();
+    logger.info(`返回 ${allTools.length} 个可用工具`);
+
+    // 明确映射每个工具的属性，确保 inputSchema 正确传递
+    const tools = allTools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema,
+    }));
+
+    logger.debug(
+      '工具列表详情:',
+      tools.map((t) => ({
+        name: t.name,
+        hasInputSchema: !!t.inputSchema,
+        inputSchemaKeys: t.inputSchema ? Object.keys(t.inputSchema) : [],
+      })),
+    );
+
     return { tools };
   } catch (error) {
     logger.error('获取工具列表失败:', error);

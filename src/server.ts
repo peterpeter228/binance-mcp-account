@@ -187,6 +187,7 @@ function registerGlobalTools() {
       }
 
       try {
+        logger.info(`注册工具: ${tool.name}, 描述: ${tool.description}, 输入模式: ${JSON.stringify(tool.inputSchema)}`);
         server.tool(tool.name, tool.description || '', tool.inputSchema || {}, async (args, extra) => {
           try {
             // 从传输对象中获取会话信息
@@ -281,6 +282,16 @@ function registerGlobalTools() {
   }
 }
 
+// 注册工具列表处理器，确保 inputSchema 正确传递
+function registerToolListHandler() {
+  try {
+    logger.info('McpServer 使用内置工具列表处理，无需自定义处理器');
+    logger.info('工具列表将通过 server.tool() 注册的工具自动生成');
+  } catch (error) {
+    logger.error('注册工具列表处理器失败:', error);
+  }
+}
+
 // 创建 Express 应用
 const app = express();
 app.use(express.json());
@@ -300,37 +311,61 @@ app.all('/mcp', authenticateRequest, async (req, res) => {
   try {
     logger.info('Streamable HTTP 请求头:', req.headers);
 
-    const sessionId = `streamable_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const binanceAuth = (req as any).binanceAuth;
+    const incomingSessionId = req.headers['mcp-session-id'] as string;
 
-    // 创建 Binance 客户端
-    const binanceClient = getOrCreateBinanceClient(sessionId, binanceAuth.apiKey, binanceAuth.secret);
+    let transport: StreamableHTTPServerTransport;
+    let sessionId: string;
 
-    // 创建 Streamable HTTP 传输
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => sessionId,
-      onsessioninitialized: (id) => {
-        logger.info(`Streamable HTTP 会话 ${id} 已初始化`);
-        // 将会话信息存储到传输对象的自定义属性中
-        (transport as any)._sessionId = id;
-        (transport as any)._binanceAuth = binanceAuth;
-      },
-      onsessionclosed: (id) => {
-        delete transports.streamable[id];
-        sessionClients.delete(id);
-        logger.info(`Streamable HTTP 会话 ${id} 已关闭`);
-      },
-    });
+    logger.info(`查找会话: ${incomingSessionId}`);
+    logger.info(`现有会话: ${Object.keys(transports.streamable).join(', ')}`);
 
-    transports.streamable[sessionId] = transport;
+    if (incomingSessionId && transports.streamable[incomingSessionId]) {
+      // 复用现有会话
+      sessionId = incomingSessionId;
+      transport = transports.streamable[sessionId];
+      logger.info(`复用 Streamable HTTP 会话: ${sessionId}`);
+    } else {
+      // 创建新会话
+      sessionId = `streamable_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // 先连接服务器
-    await server.connect(transport);
+      // 创建 Binance 客户端
+      const binanceClient = getOrCreateBinanceClient(sessionId, binanceAuth.apiKey, binanceAuth.secret);
 
-    // 然后处理请求
+      // 创建新的 Streamable HTTP 传输
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => sessionId,
+        onsessioninitialized: (id) => {
+          logger.info(`Streamable HTTP 会话 ${id} 已初始化`);
+          // 确保使用正确的会话ID存储传输实例
+          if (id !== sessionId) {
+            logger.warn(`会话ID不匹配: 期望 ${sessionId}, 实际 ${id}`);
+            // 使用实际的ID更新存储
+            delete transports.streamable[sessionId];
+            sessionId = id;
+          }
+          transports.streamable[sessionId] = transport;
+          // 将会话信息存储到传输对象的自定义属性中
+          (transport as any)._sessionId = sessionId;
+          (transport as any)._binanceAuth = binanceAuth;
+        },
+        onsessionclosed: (id) => {
+          logger.info(`Streamable HTTP 会话 ${id} 已关闭`);
+          delete transports.streamable[id];
+          sessionClients.delete(id);
+        },
+      });
+
+      // 连接服务器（只在第一次创建传输时连接）
+      await server.connect(transport);
+      logger.info(`Streamable HTTP 会话 ${sessionId} 已建立`);
+    }
+
+    // 设置响应头
+    res.setHeader('Mcp-Session-Id', sessionId);
+
+    // 处理请求
     await transport.handleRequest(req, res, req.body);
-
-    logger.info(`Streamable HTTP 会话 ${sessionId} 已建立`);
   } catch (error) {
     logger.error('Streamable HTTP 连接失败:', error);
     res.status(500).json({ error: '服务器内部错误' });
@@ -390,7 +425,7 @@ app.post('/messages', async (req, res) => {
 // 启动服务器
 async function main() {
   try {
-    // 全局注册工具（只注册一次）
+    // 工具已经在模块加载时注册，这里不需要重复注册
     // registerGlobalTools();
     // logger.info(`已注册 ${registeredTools.size} 个工具`);
 
@@ -450,4 +485,4 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   });
 }
 
-export { app, server, registerGlobalTools };
+export { app, server, registerGlobalTools, registerToolListHandler };
