@@ -7,7 +7,7 @@ dist/
 *.tsbuildinfo
 
 # 构建输出保留（MCP服务器需要）
-# build/ 
+build/ 
 
 # 测试和临时文件
 test-*.js
