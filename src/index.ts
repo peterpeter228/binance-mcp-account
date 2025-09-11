@@ -282,41 +282,38 @@ async function main() {
       await server.connect(transport);
       logger.info('MCP 服务器已连接 (stdio模式)，等待请求...');
     } else {
-      // HTTP模式：延迟初始化，等待客户端连接时提供API配置
-      logger.info('Binance MCP HTTP 服务器启动');
-      logger.info('等待Claude Desktop客户端连接并提供API配置...');
-
-      // HTTP SSE 传输模式
-      const port = parseInt(process.env.PORT || '3000');
-      const host = process.env.HOST || '0.0.0.0';
-
-      // 创建HTTP服务器
-      const httpServer = http.createServer((req, res) => {
-        if (req.method === 'GET' && req.url === '/message') {
-          // SSE连接处理
-          const transport = new SSEServerTransport('/message', res);
-          server.connect(transport).catch((error) => {
-            logger.error('SSE连接失败:', error);
-            res.writeHead(500);
-            res.end('Internal Server Error');
-          });
-        } else if (req.method === 'POST' && req.url === '/message') {
-          // POST消息处理 - 需要根据sessionId路由
-          res.writeHead(405);
-          res.end('Method Not Allowed - Use SSE for message transport');
-        } else {
-          res.writeHead(404);
-          res.end('Not Found');
-        }
-      });
-
-      // 启动HTTP服务器
-      httpServer.listen(port, host, () => {
-        logger.info(`HTTP SSE 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/message`);
-        logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
-        logger.info(`   "command": "sse",`);
-        logger.info(`   "args": ["http://${host}:${port}/message"]`);
-      });
+      // // HTTP模式：延迟初始化，等待客户端连接时提供API配置
+      // logger.info('Binance MCP HTTP 服务器启动');
+      // logger.info('等待Claude Desktop客户端连接并提供API配置...');
+      // // HTTP SSE 传输模式
+      // const port = parseInt(process.env.PORT || '3000');
+      // const host = process.env.HOST || '0.0.0.0';
+      // // 创建HTTP服务器
+      // const httpServer = http.createServer((req, res) => {
+      //   if (req.method === 'GET' && req.url === '/message') {
+      //     // SSE连接处理
+      //     const transport = new SSEServerTransport('/message', res);
+      //     server.connect(transport).catch((error) => {
+      //       logger.error('SSE连接失败:', error);
+      //       res.writeHead(500);
+      //       res.end('Internal Server Error');
+      //     });
+      //   } else if (req.method === 'POST' && req.url === '/message') {
+      //     // POST消息处理 - 需要根据sessionId路由
+      //     res.writeHead(405);
+      //     res.end('Method Not Allowed - Use SSE for message transport');
+      //   } else {
+      //     res.writeHead(404);
+      //     res.end('Not Found');
+      //   }
+      // });
+      // // 启动HTTP服务器
+      // httpServer.listen(port, host, () => {
+      //   logger.info(`HTTP SSE 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/message`);
+      //   logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
+      //   logger.info(`   "command": "sse",`);
+      //   logger.info(`   "args": ["http://${host}:${port}/message"]`);
+      // });
     }
   } catch (error) {
     logger.error('启动服务器失败:', error);

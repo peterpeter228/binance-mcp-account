@@ -342,7 +342,7 @@ app.get('/sse', authenticateRequest, async (req, res) => {
   try {
     const sessionId = `sse_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    logger.info('sse req.headers=======', req.headers, 'sessionId===', sessionId);
+    // logger.info('sse req.headers=======', req.headers, 'sessionId===', sessionId);
     const binanceAuth = (req as any).binanceAuth;
 
     // 创建 Binance 客户端
