@@ -437,6 +437,7 @@ export async function handleAccountTool(name: string, args: any, binanceClient: 
         };
 
       case 'binance_spot_balances':
+        logger.info('start binance_spot_balances');
         const balances = await spotAPI.getBalances();
         const formattedBalances = balances
           .map((balance) => ({
@@ -446,6 +447,7 @@ export async function handleAccountTool(name: string, args: any, binanceClient: 
             total: parseFloat(balance.free) + parseFloat(balance.locked),
           }))
           .filter((balance) => balance.total > 0);
+        logger.info('end binance_spot_balances');
 
         return {
           success: true,
