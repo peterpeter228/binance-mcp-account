@@ -6,7 +6,7 @@ module.exports = {
       args: 'run start:server',
       log_date_format: 'YYYY-MM-DD HH:mm Z',
       env: {
-        PORT: 3003,
+        PORT: 3010,
       },
     },
   ],
