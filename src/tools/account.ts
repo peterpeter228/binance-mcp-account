@@ -420,7 +420,9 @@ export async function handleAccountTool(name: string, args: any, binanceClient: 
   try {
     switch (name) {
       case 'binance_account_info':
+        logger.info('start binance_account_info');
         const accountInfo = await spotAPI.getAccountInfo();
+        logger.info('end binance_account_info');
         return {
           success: true,
           data: {
