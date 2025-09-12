@@ -311,6 +311,253 @@ export async function startHttpServer() {
       logger.info('📡 支持的协议: SSE (Server-Sent Events)');
       logger.info('🌐 CORS已启用，支持跨域访问');
     });
+  } else if (serverMode === 'multi-mode') {
+    // 多模式：同时支持 SSE 和 Streamable HTTP
+    logger.info('🌐 Binance MCP 多模式服务器启动 (SSE + Streamable HTTP)');
+
+    const httpServer = http.createServer(async (req, res) => {
+      // 设置CORS头部
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Testnet, mcp-session-id');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      // 处理authorization token
+      const authHeader = req.headers.authorization;
+      logger.info('收到多模式请求，Authorization header:', authHeader ? '已提供' : '未提供');
+
+      if (!authHeader) {
+        logger.warn('缺少authorization token');
+        res.writeHead(401);
+        res.end('Unauthorized: Missing authorization token');
+        return;
+      }
+
+      const credentials = AuthTokenHandler.parseCredentials(authHeader);
+      if (!credentials) {
+        logger.warn(`无效的authorization token格式，期望格式: apiKey:apiSecret，实际: ${authHeader}`);
+        res.writeHead(401);
+        res.end('Unauthorized: Invalid authorization token format. Expected: apiKey:apiSecret');
+        return;
+      }
+
+      logger.info(`Authorization token已解析，测试网模式: ${process.env.BINANCE_TESTNET === 'true' ? '是' : '否'}`);
+
+      // 根据URL路径决定使用哪种模式
+      if (req.url === '/sse') {
+        // SSE模式处理
+        if (req.method === 'GET') {
+          logger.info('🔌 建立SSE连接 (多模式)');
+
+          try {
+            // 创建SSE传输
+            const transport = new SSEServerTransport('/messages', res);
+            transports[transport.sessionId] = transport;
+
+            logger.info(`📝 存储SSE传输对象，会话ID: ${transport.sessionId}`);
+            logger.info(`📊 当前活跃会话数: ${Object.keys(transports).length}`);
+
+            // 连接关闭时清理
+            res.on('close', () => {
+              logger.info(`🔌 SSE连接关闭，会话ID: ${transport.sessionId}`);
+              delete transports[transport.sessionId];
+              logger.info(`📊 清理后活跃会话数: ${Object.keys(transports).length}`);
+            });
+
+            // 为每个传输创建独立的服务器实例
+            const server = getMcpServer(credentials);
+            await server.connect(transport);
+
+            logger.info(`✅ SSE连接建立，会话ID: ${transport.sessionId}`);
+          } catch (error) {
+            logger.error('❌ SSE连接失败:', error);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: 'SSE connection failed' }));
+          }
+        } else {
+          logger.warn(`❌ 不支持的HTTP方法: ${req.method} for /sse`);
+          res.writeHead(405);
+          res.end('Method Not Allowed');
+        }
+      } else if (req.url?.startsWith('/messages')) {
+        // SSE POST消息处理
+        if (req.method === 'POST') {
+          logger.info('📨 收到SSE POST消息请求');
+          const parsedUrl = url.parse(req.url || '', true);
+          const sessionId = parsedUrl.query.sessionId as string;
+          logger.info(`🔍 查找SSE会话ID: ${sessionId}`);
+
+          const transport = transports[sessionId];
+
+          if (transport) {
+            logger.info(`✅ 找到SSE传输对象，会话ID: ${sessionId}`);
+
+            let body = '';
+            req.on('data', (chunk) => {
+              body += chunk.toString();
+            });
+            req.on('end', async () => {
+              try {
+                logger.info(`📦 收到SSE请求体: ${body}`);
+                const parsedBody = JSON.parse(body);
+                // logger.info(`🔧 解析后的SSE请求:`, parsedBody);
+
+                // SSE 传输对象使用 handlePostMessage 方法
+                await transport.handlePostMessage(req, res, parsedBody);
+                logger.info('✅ SSE POST消息处理完成');
+              } catch (error) {
+                logger.error('❌ SSE POST消息处理失败:', error);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: 'Failed to process message' }));
+              }
+            });
+          } else {
+            logger.warn(`❌ 未找到SSE传输对象，会话ID: ${sessionId}`);
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: 'Session not found' }));
+          }
+        } else {
+          logger.warn(`❌ 不支持的HTTP方法: ${req.method} for /messages`);
+          res.writeHead(405);
+          res.end('Method Not Allowed');
+        }
+      } else if (req.url === '/mcp') {
+        // Streamable HTTP模式处理
+        logger.info('🌐 处理Streamable HTTP请求 (多模式)');
+
+        try {
+          // 解析请求体
+          let body = '';
+          req.on('data', (chunk) => {
+            body += chunk.toString();
+          });
+
+          await new Promise<void>((resolve) => {
+            req.on('end', () => {
+              resolve();
+            });
+          });
+
+          let parsedBody;
+          try {
+            parsedBody = JSON.parse(body);
+          } catch (error) {
+            logger.error('❌ Streamable HTTP请求体解析失败:', error, 'body:::', body);
+            res.writeHead(400);
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                error: {
+                  code: -32700,
+                  message: 'Parse error',
+                },
+                id: null,
+              }),
+            );
+            return;
+          }
+
+          const sessionId = req.headers['mcp-session-id'] as string;
+
+          if (sessionId && transports[sessionId]) {
+            // 重用现有传输
+            logger.info(`🔄 重用现有Streamable HTTP传输，会话ID: ${sessionId}`);
+            const transport = transports[sessionId];
+            await transport.handleRequest(req, res, parsedBody);
+          } else if (!sessionId && isInitializeRequest(parsedBody)) {
+            // 新的初始化请求
+            logger.info('🆕 处理新的Streamable HTTP初始化请求');
+
+            const transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => {
+                const newSessionId = `streamable_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                logger.info(`📝 生成新Streamable HTTP会话ID: ${newSessionId}`);
+                return newSessionId;
+              },
+              onsessioninitialized: async (sessionId) => {
+                logger.info(`🚀 Streamable HTTP会话初始化，会话ID: ${sessionId}`);
+                const server = getMcpServer(credentials);
+                await server.connect(transport);
+                logger.info(`✅ Streamable HTTP服务器连接完成，会话ID: ${sessionId}`);
+
+                // 在会话初始化后存储传输对象
+                transports[sessionId] = transport;
+                logger.info(`📝 存储Streamable HTTP传输对象，会话ID: ${sessionId}`);
+                logger.info(`📊 当前活跃会话数: ${Object.keys(transports).length}`);
+              },
+              onsessionclosed: async (sessionId) => {
+                logger.info(`🔌 Streamable HTTP会话关闭，会话ID: ${sessionId}`);
+                delete transports[sessionId];
+                logger.info(`📊 清理后活跃会话数: ${Object.keys(transports).length}`);
+              },
+            });
+
+            // 处理请求
+            await transport.handleRequest(req, res, parsedBody);
+          } else {
+            logger.warn(`❌ 无效的Streamable HTTP请求，会话ID: ${sessionId}`);
+            res.writeHead(400);
+            res.end(
+              JSON.stringify({
+                jsonrpc: '2.0',
+                error: {
+                  code: -32600,
+                  message: 'Invalid Request',
+                },
+                id: parsedBody?.id || null,
+              }),
+            );
+          }
+        } catch (error) {
+          logger.error('❌ Streamable HTTP请求处理失败:', error);
+          res.writeHead(500);
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32603,
+                message: 'Internal error',
+              },
+              id: null,
+            }),
+          );
+        }
+      } else {
+        // 其他路径返回404
+        logger.warn(`❌ 未找到路径: ${req.url}`);
+        res.writeHead(404);
+        res.end('Not Found');
+      }
+    });
+
+    httpServer.listen(port, host, () => {
+      logger.info(`多模式服务器启动在端口 ${port}`);
+      logger.info('📡 支持的协议: SSE + Streamable HTTP');
+      logger.info('🌐 访问路径:');
+      logger.info(`   SSE: http://${host}:${port}/sse`);
+      logger.info(`   Streamable HTTP: http://${host}:${port}/mcp`);
+      logger.info('');
+      logger.info('💡 Claude Desktop MCP 配置示例:');
+      logger.info('   SSE模式:');
+      logger.info(`     "url": "http://${host}:${port}/sse",`);
+      logger.info(`     "headers": {`);
+      logger.info(`       "Authorization": "your_api_key:your_api_secret"`);
+      logger.info(`     }`);
+      logger.info('');
+      logger.info('   Streamable HTTP模式:');
+      logger.info(`     "url": "http://${host}:${port}/mcp",`);
+      logger.info(`     "headers": {`);
+      logger.info(`       "Authorization": "your_api_key:your_api_secret"`);
+      logger.info(`     }`);
+      logger.info('');
+      logger.info('🔑 Authorization Token格式: apiKey:apiSecret');
+      logger.info('🌐 CORS已启用，支持跨域访问');
+    });
   } else if (serverMode === 'streamable-http') {
     // Streamable HTTP模式
     logger.info('🌐 Binance MCP Streamable HTTP 服务器启动');
@@ -469,6 +716,7 @@ export async function startHttpServer() {
     });
   } else {
     logger.error(`不支持的服务器模式: ${serverMode}`);
+    logger.info('支持的模式: stdio, sse, streamable-http, multi-mode');
     process.exit(1);
   }
 }

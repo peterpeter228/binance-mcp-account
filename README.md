@@ -15,7 +15,7 @@
 - 📝 **用户友好输出** - 中文界面，结构化显示，包含详细说明和操作建议
 - 🛡️ **完善的安全机制** - 参数验证、错误处理、API 限制保护
 - 🎯 **智能风险管理** - 内置风险计算、仓位管理、套利分析工具
-- 🚀 **三运行模式** - 支持本地 stdio、SSE 和 Streamable HTTP 部署
+- 🚀 **四运行模式** - 支持本地 stdio、SSE、Streamable HTTP 和多模式部署
 - 🧪 **测试网支持** - 完整的测试环境，安全练习交易
 
 ## 功能特性
@@ -83,63 +83,71 @@ npm run build
 
 #### 配置内容：
 
-### 1. STDIO 连接方式
+##### 1. STDIO 连接方式
 
 ```json
 {
   "mcpServers": {
-    "binance": {
+    "binance-stdio": {
       "command": "node",
       "args": ["/绝对路径/到/你的/binance-mcp-server/build/index.js"],
       "env": {
-        "BINANCE_API_KEY": "your_binance_api_key_here",
-        "BINANCE_SECRET_KEY": "your_binance_secret_key_here",
-        "BINANCE_TESTNET": "false",
-        "LOG_LEVEL": "info"
+        "BINANCE_API_KEY": "API_KEY",
+        "BINANCE_SECRET_KEY": "SECRET_KEY"
       }
     }
   }
 }
 ```
 
-### 2. SSE 连接方式
+##### 2. SSE 连接方式
 
 ```json
 {
   "mcpServers": {
     "binance-sse": {
-      "command": "sse",
-      "args": ["http://localhost:3000/sse"],
-      "authorization_token": "your_api_key:your_api_secret"
+      "url": "https://xxxxxxxx/sse",
+      "headers": {
+        "Authorization": "{API_KEY}:{SECRET_KEY}"
+      }
     }
   }
 }
 ```
 
-**启动 SSE 服务器：**
-
-```bash
-SERVER_MODE=sse npm run start
-```
-
-### 3. Streamable HTTP 连接方式（推荐）
+##### 3. Streamable HTTP 连接方式 （推荐）
 
 ```json
 {
   "mcpServers": {
-    "binance-streamable-http": {
-      "command": "streamable-http",
-      "args": ["http://localhost:3000/mcp"],
-      "authorization_token": "your_api_key:your_api_secret"
+    "binance-mcp": {
+      "url": "https://xxxxxxxx/mcp",
+      "headers": {
+        "Authorization": "{API_KEY}:{SECRET_KEY}"
+      }
     }
   }
 }
 ```
 
-**启动 Streamable HTTP 服务器：**
+#### 启动服务器：
+
+##### 1. SSE 启动：
 
 ```bash
-SERVER_MODE=streamable-http npm run start
+SERVER_MODE=sse node build/server.js
+```
+
+##### 2. Streamable HTTP 启动：
+
+```bash
+SERVER_MODE=streamable-http node build/server.js
+```
+
+##### 3. 多模式 启动：
+
+```bash
+SERVER_MODE=multi-mode node build/server.js
 ```
 
 **配置说明：**
@@ -147,16 +155,18 @@ SERVER_MODE=streamable-http npm run start
 - **STDIO 模式**：将路径替换为项目的完整绝对路径，在 `env` 中直接填入你的 Binance API 密钥
 - **SSE 模式**：API 密钥通过 `authorization_token` 提供，格式为 `apiKey:apiSecret`
 - **Streamable HTTP 模式**：API 密钥通过 `authorization_token` 提供，格式为 `apiKey:apiSecret`（推荐使用）
+- **多模式**：同时支持 SSE 和 Streamable HTTP，API 密钥通过 `authorization_token` 提供（生产环境推荐）
 - `BINANCE_TESTNET` 设置为 `"true"` 可使用测试网
 - `LOG_LEVEL` 可设置为 `"debug"`, `"info"`, `"warn"`, `"error"`
 
 **模式对比：**
 
-| 模式            | 协议版本   | 性能 | 适用场景         |
-| --------------- | ---------- | ---- | ---------------- |
-| STDIO           | 2024-11-05 | 高   | 本地开发         |
-| SSE             | 2024-11-05 | 中   | 简单部署         |
-| Streamable HTTP | 2025-03-26 | 最高 | 生产环境（推荐） |
+| 模式            | 协议版本                | 性能 | 适用场景         | 端口使用     |
+| --------------- | ----------------------- | ---- | ---------------- | ------------ |
+| STDIO           | 2024-11-05              | 高   | 本地开发         | 无           |
+| SSE             | 2024-11-05              | 中   | 简单部署         | 独立端口     |
+| Streamable HTTP | 2025-03-26              | 最高 | 生产环境         | 独立端口     |
+| 多模式          | 2024-11-05 + 2025-03-26 | 最高 | 生产环境（推荐） | **共享端口** |
 
 ### 4. 重启 Claude Desktop
 
@@ -312,71 +322,6 @@ SERVER_MODE=streamable-http npm run start
 - 📊 设置合理的止损止盈
 - ⚡ 避免高频交易以免触发 API 限制
 
-## 🛠️ 部署选项
-
-### 本地部署 (推荐)
-
-适合个人使用，配置在 Claude Desktop 中：
-
-```json
-{
-  "mcpServers": {
-    "binance": {
-      "command": "node",
-      "args": ["/path/to/binance-mcp-server/build/index.js"],
-      "env": {
-        "BINANCE_API_KEY": "your_api_key",
-        "BINANCE_SECRET_KEY": "your_secret_key",
-        "BINANCE_TESTNET": "false"
-      }
-    }
-  }
-}
-```
-
-### 远程 HTTP 部署
-
-适合团队使用或云端部署：
-
-#### 使用 Docker
-
-```bash
-# 构建镜像
-docker build -t binance-mcp-server .
-
-# 运行容器
-docker run -d -p 3000:3000 \
-  -e BINANCE_API_KEY=your_api_key \
-  -e BINANCE_SECRET_KEY=your_secret_key \
-  -e BINANCE_TESTNET=false \
-  --name binance-mcp \
-  binance-mcp-server
-```
-
-#### 使用 Docker Compose
-
-```bash
-# 编辑docker-compose.yml中的环境变量
-docker-compose up -d
-```
-
-Claude Desktop 配置（HTTP 模式）：
-
-```json
-{
-  "mcpServers": {
-    "binance": {
-      "command": "sse",
-      "args": ["http://your-server:3000/message"],
-      "env": {
-        "BINANCE_API_KEY": "your_api_key",
-        "BINANCE_SECRET_KEY": "your_secret_key"
-      }
-    }
-  }
-}
-```
-
 ## 🔧 开发指南
 
 ### 项目架构
@@ -434,8 +379,6 @@ npm run test:all
 
 # 单独测试模块
 node test-validation.js        # 参数验证测试
-node test-output-format.js     # 输出格式化测试
-node scripts/validate-tools.js # 工具完整性验证
 node scripts/list-actual-tools.js # 工具清单
 ```
 
