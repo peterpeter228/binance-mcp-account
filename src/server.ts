@@ -2,7 +2,8 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';
-import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { CallToolRequestSchema, ListToolsRequestSchema, isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import * as http from 'node:http';
 import * as url from 'node:url';
 import { logger } from './utils/logger.js';
@@ -310,6 +311,162 @@ export async function startHttpServer() {
       logger.info('📡 支持的协议: SSE (Server-Sent Events)');
       logger.info('🌐 CORS已启用，支持跨域访问');
     });
+  } else if (serverMode === 'streamable-http') {
+    // Streamable HTTP模式
+    logger.info('🌐 Binance MCP Streamable HTTP 服务器启动');
+
+    const httpServer = http.createServer(async (req, res) => {
+      // 设置CORS头部
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Testnet');
+
+      if (req.method === 'OPTIONS') {
+        res.writeHead(200);
+        res.end();
+        return;
+      }
+
+      // 处理authorization token
+      const authHeader = req.headers.authorization;
+      logger.info('收到Streamable HTTP请求，Authorization header:', authHeader ? '已提供' : '未提供');
+
+      if (!authHeader) {
+        logger.warn('缺少authorization token');
+        res.writeHead(401);
+        res.end('Unauthorized: Missing authorization token');
+        return;
+      }
+
+      const credentials = AuthTokenHandler.parseCredentials(authHeader);
+      if (!credentials) {
+        logger.warn(`无效的authorization token格式，期望格式: apiKey:apiSecret，实际: ${authHeader}`);
+        res.writeHead(401);
+        res.end('Unauthorized: Invalid authorization token format. Expected: apiKey:apiSecret');
+        return;
+      }
+
+      logger.info(`Authorization token已解析，测试网模式: ${process.env.BINANCE_TESTNET === 'true' ? '是' : '否'}`);
+
+      try {
+        // 解析请求体
+        let body = '';
+        req.on('data', (chunk) => {
+          body += chunk.toString();
+        });
+
+        await new Promise<void>((resolve) => {
+          req.on('end', () => {
+            resolve();
+          });
+        });
+
+        let parsedBody;
+        try {
+          parsedBody = JSON.parse(body);
+        } catch (error) {
+          logger.error('❌ 请求体解析失败:', error);
+          res.writeHead(400);
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32700,
+                message: 'Parse error',
+              },
+              id: null,
+            }),
+          );
+          return;
+        }
+
+        const sessionId = req.headers['mcp-session-id'] as string;
+
+        if (sessionId && transports[sessionId]) {
+          // 重用现有传输
+          logger.info(`🔄 重用现有传输，会话ID: ${sessionId}`);
+          const transport = transports[sessionId];
+          await transport.handleRequest(req, res, parsedBody);
+        } else if (!sessionId && isInitializeRequest(parsedBody)) {
+          // 新的初始化请求
+          logger.info('🆕 处理新的初始化请求');
+
+          const transport = new StreamableHTTPServerTransport({
+            sessionIdGenerator: () => {
+              const newSessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              logger.info(`📝 生成新会话ID: ${newSessionId}`);
+              return newSessionId;
+            },
+            onsessioninitialized: (newSessionId: string) => {
+              logger.info(`✅ 会话初始化完成: ${newSessionId}`);
+              // 存储传输对象，包含凭据信息
+              transports[newSessionId] = transport;
+            },
+            onsessionclosed: (closedSessionId: string) => {
+              logger.info(`🔌 会话关闭: ${closedSessionId}`);
+              delete transports[closedSessionId];
+            },
+          });
+
+          // 设置关闭处理器
+          transport.onclose = () => {
+            const sid = transport.sessionId;
+            if (sid && transports[sid]) {
+              logger.info(`🔌 传输关闭，会话ID: ${sid}`);
+              delete transports[sid];
+            }
+          };
+
+          // 为传输创建独立的服务器实例
+          const server = getMcpServer(credentials);
+          await server.connect(transport);
+
+          // 处理请求
+          await transport.handleRequest(req, res, parsedBody);
+        } else {
+          // 无效请求 - 没有会话ID或不是初始化请求
+          logger.warn('❌ 无效请求：没有会话ID或不是初始化请求');
+          res.writeHead(400);
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32000,
+                message: 'Bad Request: No valid session ID provided',
+              },
+              id: null,
+            }),
+          );
+        }
+      } catch (error) {
+        logger.error('❌ Streamable HTTP请求处理失败:', error);
+        if (!res.headersSent) {
+          res.writeHead(500);
+          res.end(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32603,
+                message: 'Internal server error',
+              },
+              id: null,
+            }),
+          );
+        }
+      }
+    });
+
+    httpServer.listen(port, host, () => {
+      logger.info(`Streamable HTTP 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/mcp`);
+      logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
+      logger.info(`   "command": "streamable-http",`);
+      logger.info(`   "args": ["http://${host}:${port}/mcp"],`);
+      logger.info(`   "authorization_token": "your_api_key:your_api_secret"`);
+      logger.info('');
+      logger.info('🔑 Authorization Token格式: apiKey:apiSecret');
+      logger.info('📡 支持的协议: Streamable HTTP (2025-03-26)');
+      logger.info('🌐 CORS已启用，支持跨域访问');
+    });
   } else {
     logger.error(`不支持的服务器模式: ${serverMode}`);
     process.exit(1);
@@ -333,4 +490,10 @@ process.on('SIGINT', async () => {
 
   logger.info('服务器关闭完成');
   process.exit(0);
+});
+
+// 启动服务器
+startHttpServer().catch((error) => {
+  logger.error('服务器启动失败:', error);
+  process.exit(1);
 });

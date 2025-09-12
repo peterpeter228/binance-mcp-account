@@ -15,7 +15,7 @@
 - 📝 **用户友好输出** - 中文界面，结构化显示，包含详细说明和操作建议
 - 🛡️ **完善的安全机制** - 参数验证、错误处理、API 限制保护
 - 🎯 **智能风险管理** - 内置风险计算、仓位管理、套利分析工具
-- 🚀 **双运行模式** - 支持本地 stdio 和远程 HTTP 部署
+- 🚀 **三运行模式** - 支持本地 stdio、SSE 和 Streamable HTTP 部署
 - 🧪 **测试网支持** - 完整的测试环境，安全练习交易
 
 ## 功能特性
@@ -122,12 +122,41 @@ npm run build
 SERVER_MODE=sse npm run start
 ```
 
+### 3. Streamable HTTP 连接方式（推荐）
+
+```json
+{
+  "mcpServers": {
+    "binance-streamable-http": {
+      "command": "streamable-http",
+      "args": ["http://localhost:3000/mcp"],
+      "authorization_token": "your_api_key:your_api_secret"
+    }
+  }
+}
+```
+
+**启动 Streamable HTTP 服务器：**
+
+```bash
+SERVER_MODE=streamable-http npm run start
+```
+
 **配置说明：**
 
 - **STDIO 模式**：将路径替换为项目的完整绝对路径，在 `env` 中直接填入你的 Binance API 密钥
 - **SSE 模式**：API 密钥通过 `authorization_token` 提供，格式为 `apiKey:apiSecret`
+- **Streamable HTTP 模式**：API 密钥通过 `authorization_token` 提供，格式为 `apiKey:apiSecret`（推荐使用）
 - `BINANCE_TESTNET` 设置为 `"true"` 可使用测试网
 - `LOG_LEVEL` 可设置为 `"debug"`, `"info"`, `"warn"`, `"error"`
+
+**模式对比：**
+
+| 模式            | 协议版本   | 性能 | 适用场景         |
+| --------------- | ---------- | ---- | ---------------- |
+| STDIO           | 2024-11-05 | 高   | 本地开发         |
+| SSE             | 2024-11-05 | 中   | 简单部署         |
+| Streamable HTTP | 2025-03-26 | 最高 | 生产环境（推荐） |
 
 ### 4. 重启 Claude Desktop
 
