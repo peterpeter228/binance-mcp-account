@@ -135,19 +135,19 @@ npm run build
 ##### 1. SSE 启动：
 
 ```bash
-SERVER_MODE=sse node build/server.js
+npm run dev:sse
 ```
 
 ##### 2. Streamable HTTP 启动：
 
 ```bash
-SERVER_MODE=streamable-http node build/server.js
+npm run dev:streamable-http
 ```
 
 ##### 3. 多模式 启动：
 
 ```bash
-SERVER_MODE=multi-mode node build/server.js
+npm run dev:multi-mode
 ```
 
 **配置说明：**
@@ -355,8 +355,8 @@ cd binance-mcp-server
 # 安装依赖
 npm install
 
-# 开发模式（监听文件变化）
-npm run dev
+# 开发模式
+npm run dev:multi-mode
 
 # 构建项目
 npm run build
@@ -368,7 +368,7 @@ npm test
 npm run format
 
 # 生产运行
-npm start
+npm run start:multi-mode
 ```
 
 ### 测试套件
