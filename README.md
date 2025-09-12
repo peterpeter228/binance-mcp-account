@@ -105,18 +105,27 @@ npm run build
 ### 2. SSE 连接方式
 
 ```json
-"binance-sse": {
-    "url": "https://api/sse",
-    "headers": {
-        "Authorization": "{API_KEY}:{SECRET_KEY}"
+{
+  "mcpServers": {
+    "binance-sse": {
+      "command": "sse",
+      "args": ["http://localhost:3000/sse"],
+      "authorization_token": "your_api_key:your_api_secret"
     }
+  }
 }
+```
+
+**启动 SSE 服务器：**
+
+```bash
+SERVER_MODE=sse npm run start
 ```
 
 **配置说明：**
 
-- 将路径替换为项目的完整绝对路径
-- 在 `env` 中直接填入你的 Binance API 密钥
+- **STDIO 模式**：将路径替换为项目的完整绝对路径，在 `env` 中直接填入你的 Binance API 密钥
+- **SSE 模式**：API 密钥通过 `authorization_token` 提供，格式为 `apiKey:apiSecret`
 - `BINANCE_TESTNET` 设置为 `"true"` 可使用测试网
 - `LOG_LEVEL` 可设置为 `"debug"`, `"info"`, `"warn"`, `"error"`
 

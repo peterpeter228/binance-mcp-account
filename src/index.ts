@@ -33,28 +33,57 @@ function getAllTools(binanceClient: BinanceClient) {
 // 处理工具调用
 async function handleTool(name: string, args: any, binanceClient: BinanceClient) {
   try {
-    // 账户工具 - 优先匹配，因为包含 binance_spot_balances
-    if (name.startsWith('binance_account_') || name === 'binance_spot_balances') {
+    // 账户管理工具
+    if (
+      name.startsWith('binance_account') ||
+      name === 'binance_spot_balances' ||
+      name === 'binance_portfolio_account' ||
+      name === 'binance_futures_positions'
+    ) {
       return await handleAccountTool(name, args, binanceClient);
     }
 
-    // 现货工具
-    if (name.startsWith('binance_spot_')) {
+    // 现货交易工具
+    if (
+      name.startsWith('binance_spot_') &&
+      !name.includes('price') &&
+      !name.includes('orderbook') &&
+      !name.includes('klines') &&
+      !name.includes('24hr_ticker')
+    ) {
       return await handleSpotTool(name, args, binanceClient);
     }
 
-    // 合约工具
-    if (name.startsWith('binance_futures_')) {
+    // 合约交易工具
+    if (
+      name.startsWith('binance_futures_') &&
+      !name.includes('price') &&
+      !name.includes('klines') &&
+      !name.includes('24hr_ticker')
+    ) {
       return await handleFuturesTool(name, args, binanceClient);
     }
 
-    // 市场工具
-    if (name.startsWith('binance_market_')) {
+    // 市场数据工具
+    if (
+      name.includes('price') ||
+      name.includes('orderbook') ||
+      name.includes('klines') ||
+      name.includes('24hr_ticker') ||
+      name.includes('exchange_info') ||
+      name.includes('server_time')
+    ) {
       return await handleMarketTool(name, args, binanceClient);
     }
 
-    // 高级工具
-    if (name.startsWith('binance_advanced_')) {
+    // 高级分析工具
+    if (
+      name.startsWith('binance_calculate_') ||
+      name.startsWith('binance_analyze_') ||
+      name.startsWith('binance_compare_') ||
+      name.startsWith('binance_check_') ||
+      name.startsWith('binance_get_')
+    ) {
       return await handleAdvancedTool(name, args, binanceClient);
     }
 
@@ -148,7 +177,46 @@ async function startStdioServer() {
     try {
       logger.info(`执行工具: ${request.params.name}`, request.params.arguments);
       const result = await handleTool(request.params.name, request.params.arguments, binanceClient);
-      return result;
+
+      // 统一处理结果格式转换
+      if (result && typeof result === 'object') {
+        // 如果已经是MCP格式，直接返回
+        if (result.content && Array.isArray(result.content)) {
+          return result;
+        }
+
+        // 如果是自定义格式 {success: true, data: ...}，转换为MCP格式
+        if (result.success && result.data !== undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2),
+              },
+            ],
+          };
+        }
+
+        // 如果是其他格式，尝试转换为文本
+        return {
+          content: [
+            {
+              type: 'text',
+              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      // 如果结果为空或无效，返回错误信息
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '工具执行完成，但未返回有效结果',
+          },
+        ],
+      };
     } catch (error) {
       logger.error(`工具调用失败 ${request.params.name}:`, error);
       if (error instanceof McpError) {

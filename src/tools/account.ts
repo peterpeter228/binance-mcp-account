@@ -422,7 +422,15 @@ export async function handleAccountTool(name: string, args: any, binanceClient: 
       case 'binance_account_info':
         logger.info('start binance_account_info');
         const accountInfo = await spotAPI.getAccountInfo();
-        logger.info('end binance_account_info');
+        logger.info('end binance_account_info result:::', {
+          accountType: accountInfo.accountType,
+          canTrade: accountInfo.canTrade,
+          canWithdraw: accountInfo.canWithdraw,
+          canDeposit: accountInfo.canDeposit,
+          updateTime: accountInfo.updateTime,
+          permissions: accountInfo.permissions,
+          balanceCount: accountInfo.balances.length,
+        });
         return {
           success: true,
           data: {

@@ -7,6 +7,7 @@ import * as http from 'node:http';
 import * as url from 'node:url';
 import { logger } from './utils/logger.js';
 import { BinanceClient } from './api/client.js';
+import { AuthTokenHandler, BinanceCredentials } from './utils/auth.js';
 import { createAccountTools, handleAccountTool } from './tools/account.js';
 import { createSpotTools, handleSpotTool } from './tools/spot.js';
 import { createFuturesTools, handleFuturesTool } from './tools/futures.js';
@@ -17,7 +18,7 @@ import { createAdvancedTools, handleAdvancedTool } from './tools/advanced.js';
 const transports: { [sessionId: string]: any } = {};
 
 // 创建MCP服务器 - 为每个传输创建独立实例
-function getMcpServer() {
+function getMcpServer(credentials: BinanceCredentials) {
   const server = new Server(
     {
       name: 'binance-mcp-server',
@@ -30,25 +31,25 @@ function getMcpServer() {
     },
   );
 
+  // 创建Binance客户端
+  const binanceClient = new BinanceClient({
+    apiKey: credentials.apiKey,
+    apiSecret: credentials.apiSecret,
+    testnet: process.env.BINANCE_TESTNET === 'true',
+  });
+
   // 注册工具列表处理器
   server.setRequestHandler(ListToolsRequestSchema, async (request) => {
     try {
       logger.info('🔧 收到工具列表请求');
 
-      // 创建默认的Binance客户端用于获取工具列表
-      const defaultClient = new BinanceClient({
-        apiKey: 'test_api_key',
-        apiSecret: 'test_api_secret',
-        testnet: false,
-      });
-
       // 获取所有Binance工具
       const tools = [
-        ...createAccountTools(defaultClient),
-        ...createSpotTools(defaultClient),
-        ...createFuturesTools(defaultClient),
-        ...createMarketTools(defaultClient),
-        ...createAdvancedTools(defaultClient),
+        ...createAccountTools(binanceClient),
+        ...createSpotTools(binanceClient),
+        ...createFuturesTools(binanceClient),
+        ...createMarketTools(binanceClient),
+        ...createAdvancedTools(binanceClient),
       ];
 
       logger.info(`✅ 返回 ${tools.length} 个工具`);
@@ -64,39 +65,103 @@ function getMcpServer() {
     try {
       logger.info(`🔧 执行工具: ${request.params.name}`, request.params.arguments);
 
-      // 创建默认的Binance客户端用于工具调用
-      const defaultClient = new BinanceClient({
-        apiKey: 'test_api_key',
-        apiSecret: 'test_api_secret',
-        testnet: false,
-      });
+      let result: any;
 
-      // 账户工具 - 优先匹配，因为包含 binance_spot_balances
-      if (request.params.name.startsWith('binance_account_') || request.params.name === 'binance_spot_balances') {
-        return await handleAccountTool(request.params.name, request.params.arguments, defaultClient);
+      // 账户管理工具
+      if (
+        request.params.name.startsWith('binance_account') ||
+        request.params.name === 'binance_spot_balances' ||
+        request.params.name === 'binance_portfolio_account' ||
+        request.params.name === 'binance_futures_positions'
+      ) {
+        result = await handleAccountTool(request.params.name, request.params.arguments, binanceClient);
       }
 
-      // 现货工具
-      if (request.params.name.startsWith('binance_spot_')) {
-        return await handleSpotTool(request.params.name, request.params.arguments, defaultClient);
+      // 现货交易工具
+      else if (
+        request.params.name.startsWith('binance_spot_') &&
+        !request.params.name.includes('price') &&
+        !request.params.name.includes('orderbook') &&
+        !request.params.name.includes('klines') &&
+        !request.params.name.includes('24hr_ticker')
+      ) {
+        result = await handleSpotTool(request.params.name, request.params.arguments, binanceClient);
       }
 
-      // 合约工具
-      if (request.params.name.startsWith('binance_futures_')) {
-        return await handleFuturesTool(request.params.name, request.params.arguments, defaultClient);
+      // 合约交易工具
+      else if (
+        request.params.name.startsWith('binance_futures_') &&
+        !request.params.name.includes('price') &&
+        !request.params.name.includes('klines') &&
+        !request.params.name.includes('24hr_ticker')
+      ) {
+        result = await handleFuturesTool(request.params.name, request.params.arguments, binanceClient);
       }
 
-      // 市场工具
-      if (request.params.name.startsWith('binance_market_')) {
-        return await handleMarketTool(request.params.name, request.params.arguments, defaultClient);
+      // 市场数据工具
+      else if (
+        request.params.name.includes('price') ||
+        request.params.name.includes('orderbook') ||
+        request.params.name.includes('klines') ||
+        request.params.name.includes('24hr_ticker') ||
+        request.params.name.includes('exchange_info') ||
+        request.params.name.includes('server_time')
+      ) {
+        result = await handleMarketTool(request.params.name, request.params.arguments, binanceClient);
       }
 
-      // 高级工具
-      if (request.params.name.startsWith('binance_advanced_')) {
-        return await handleAdvancedTool(request.params.name, request.params.arguments, defaultClient);
+      // 高级分析工具
+      else if (
+        request.params.name.startsWith('binance_calculate_') ||
+        request.params.name.startsWith('binance_analyze_') ||
+        request.params.name.startsWith('binance_compare_') ||
+        request.params.name.startsWith('binance_check_') ||
+        request.params.name.startsWith('binance_get_')
+      ) {
+        result = await handleAdvancedTool(request.params.name, request.params.arguments, binanceClient);
+      } else {
+        throw new Error(`未知的工具: ${request.params.name}`);
       }
 
-      throw new Error(`未知的工具: ${request.params.name}`);
+      // 统一处理结果格式转换
+      if (result && typeof result === 'object') {
+        // 如果已经是MCP格式，直接返回
+        if (result.content && Array.isArray(result.content)) {
+          return result;
+        }
+
+        // 如果是自定义格式 {success: true, data: ...}，转换为MCP格式
+        if (result.success && result.data !== undefined) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: typeof result.data === 'string' ? result.data : JSON.stringify(result.data, null, 2),
+              },
+            ],
+          };
+        }
+
+        // 如果是其他格式，尝试转换为文本
+        return {
+          content: [
+            {
+              type: 'text',
+              text: typeof result === 'string' ? result : JSON.stringify(result, null, 2),
+            },
+          ],
+        };
+      }
+
+      // 如果结果为空或无效，返回错误信息
+      return {
+        content: [
+          {
+            type: 'text',
+            text: '工具执行完成，但未返回有效结果',
+          },
+        ],
+      };
     } catch (error) {
       logger.error(`❌ 工具执行失败 ${request.params.name}:`, error);
       throw error;
@@ -134,6 +199,27 @@ export async function startHttpServer() {
         if (req.method === 'GET') {
           logger.info('🔌 建立SSE连接');
 
+          // 处理authorization token
+          const authHeader = req.headers.authorization;
+          logger.info('收到SSE连接请求，Authorization header:', authHeader ? '已提供' : '未提供');
+
+          if (!authHeader) {
+            logger.warn('缺少authorization token');
+            res.writeHead(401);
+            res.end('Unauthorized: Missing authorization token');
+            return;
+          }
+
+          const credentials = AuthTokenHandler.parseCredentials(authHeader);
+          if (!credentials) {
+            logger.warn(`无效的authorization token格式，期望格式: apiKey:apiSecret，实际: ${authHeader}`);
+            res.writeHead(401);
+            res.end('Unauthorized: Invalid authorization token format. Expected: apiKey:apiSecret');
+            return;
+          }
+
+          logger.info(`Authorization token已解析，测试网模式: ${process.env.BINANCE_TESTNET === 'true' ? '是' : '否'}`);
+
           try {
             // 创建SSE传输 - 与官方示例完全一致
             const transport = new SSEServerTransport('/messages', res);
@@ -149,8 +235,8 @@ export async function startHttpServer() {
               logger.info(`📊 清理后活跃会话数: ${Object.keys(transports).length}`);
             });
 
-            // 为每个传输创建独立的服务器实例
-            const server = getMcpServer();
+            // 为每个传输创建独立的服务器实例，使用真实的API凭据
+            const server = getMcpServer(credentials);
             await server.connect(transport);
 
             logger.info(`✅ SSE连接建立，会话ID: ${transport.sessionId}`);
@@ -217,7 +303,12 @@ export async function startHttpServer() {
       logger.info(`SSE 服务器启动在端口 ${port}，访问路径: http://${host}:${port}/sse`);
       logger.info('💡 提示：请在Claude Desktop的MCP配置中使用以下配置：');
       logger.info(`   "command": "sse",`);
-      logger.info(`   "args": ["http://${host}:${port}/sse"]`);
+      logger.info(`   "args": ["http://${host}:${port}/sse"],`);
+      logger.info(`   "authorization_token": "your_api_key:your_api_secret"`);
+      logger.info('');
+      logger.info('🔑 Authorization Token格式: apiKey:apiSecret');
+      logger.info('📡 支持的协议: SSE (Server-Sent Events)');
+      logger.info('🌐 CORS已启用，支持跨域访问');
     });
   } else {
     logger.error(`不支持的服务器模式: ${serverMode}`);
