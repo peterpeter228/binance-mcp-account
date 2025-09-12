@@ -86,6 +86,22 @@ const transports = {
   sse: {} as Record<string, SSEServerTransport>,
 };
 
+// 存储请求级别的会话信息 - 解决多用户并发问题
+const requestSessions = new Map<string, { sessionId: string; binanceAuth: any }>();
+
+// 存储当前活跃的会话信息 - 用于工具调用时快速查找
+const activeSessions = new Map<string, { sessionId: string; binanceAuth: any; transport: any }>();
+
+// 存储当前正在处理的请求上下文 - 用于工具调用时识别会话
+let currentRequestContext: { sessionId: string; binanceAuth: any } | null = null;
+
+// 存储每个传输对象对应的会话信息 - 用于精确匹配
+const transportSessionMap = new Map<any, { sessionId: string; binanceAuth: any }>();
+
+// 使用AsyncLocalStorage来存储请求上下文
+import { AsyncLocalStorage } from 'async_hooks';
+const asyncLocalStorage = new AsyncLocalStorage<{ sessionId: string; binanceAuth: any }>();
+
 // 创建 MCP 服务器
 const server = new McpServer({
   name: 'binance-mcp-server',
@@ -255,25 +271,76 @@ function registerGlobalTools() {
 
         server.tool(tool.name, tool.description || '', zodShape, async (args, extra) => {
           try {
-            // 从传输对象中获取会话信息
+            // 从请求级别的会话存储中获取会话信息
             let sessionId: string | undefined;
             let binanceAuth: any;
 
-            // 尝试从不同的传输对象中获取会话信息
-            for (const [id, transport] of Object.entries(transports.streamable)) {
-              if ((transport as any)._sessionId) {
-                sessionId = (transport as any)._sessionId;
-                binanceAuth = (transport as any)._binanceAuth;
-                break;
-              }
-            }
+            // 优先使用AsyncLocalStorage中的请求上下文（最准确的方法）
+            const asyncContext = asyncLocalStorage.getStore();
+            if (asyncContext) {
+              sessionId = asyncContext.sessionId;
+              binanceAuth = asyncContext.binanceAuth;
+              logger.info(`使用AsyncLocalStorage会话: ${sessionId}`);
+            } else if (currentRequestContext) {
+              sessionId = currentRequestContext.sessionId;
+              binanceAuth = currentRequestContext.binanceAuth;
+              logger.info(`使用当前请求上下文会话: ${sessionId}`);
+            } else {
+              // 尝试从 extra 参数中获取请求ID（如果MCP SDK支持）
+              const requestId = (extra as any)?.requestId;
 
-            if (!sessionId || !binanceAuth) {
-              for (const [id, transport] of Object.entries(transports.sse)) {
-                if ((transport as any)._sessionId) {
-                  sessionId = (transport as any)._sessionId;
-                  binanceAuth = (transport as any)._binanceAuth;
-                  break;
+              if (requestId && requestSessions.has(requestId)) {
+                const sessionInfo = requestSessions.get(requestId)!;
+                sessionId = sessionInfo.sessionId;
+                binanceAuth = sessionInfo.binanceAuth;
+                logger.info(`通过请求ID找到会话: ${sessionId}`);
+              } else {
+                // 使用活跃会话存储进行查找
+                const activeSessionEntries = Array.from(activeSessions.entries());
+                logger.info(`当前活跃会话数量: ${activeSessionEntries.length}`);
+
+                if (activeSessionEntries.length === 1) {
+                  // 只有一个活跃会话，直接使用
+                  const session = activeSessionEntries[0][1];
+                  sessionId = session.sessionId;
+                  binanceAuth = session.binanceAuth;
+                  logger.info(`使用唯一活跃会话: ${sessionId}`);
+                } else if (activeSessionEntries.length > 1) {
+                  // 多个活跃会话时，不能简单选择"最近活跃的"
+                  // 应该通过其他方式确定当前请求对应的会话
+                  logger.warn(`检测到多个活跃会话，无法确定当前请求对应的会话`);
+
+                  // 尝试通过传输对象查找当前请求对应的会话
+                  // 这里需要更精确的匹配逻辑
+                  for (const [id, transport] of Object.entries(transports.sse)) {
+                    if ((transport as any)._sessionId) {
+                      sessionId = (transport as any)._sessionId;
+                      binanceAuth = (transport as any)._binanceAuth;
+                      logger.info(`回退使用SSE传输会话: ${sessionId}`);
+                      break;
+                    }
+                  }
+                } else {
+                  // 回退到原来的方法（向后兼容）
+                  for (const [id, transport] of Object.entries(transports.streamable)) {
+                    if ((transport as any)._sessionId) {
+                      sessionId = (transport as any)._sessionId;
+                      binanceAuth = (transport as any)._binanceAuth;
+                      logger.info(`使用Streamable传输会话: ${sessionId}`);
+                      break;
+                    }
+                  }
+
+                  if (!sessionId || !binanceAuth) {
+                    for (const [id, transport] of Object.entries(transports.sse)) {
+                      if ((transport as any)._sessionId) {
+                        sessionId = (transport as any)._sessionId;
+                        binanceAuth = (transport as any)._binanceAuth;
+                        logger.info(`使用SSE传输会话: ${sessionId}`);
+                        break;
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -408,6 +475,12 @@ app.all('/mcp', authenticateRequest, async (req, res) => {
           logger.info(`Streamable HTTP 会话 ${id} 已关闭`);
           delete transports.streamable[id];
           sessionClients.delete(id);
+          // 清理请求级别的会话存储
+          for (const [requestId, sessionInfo] of requestSessions.entries()) {
+            if (sessionInfo.sessionId === id) {
+              requestSessions.delete(requestId);
+            }
+          }
         },
       });
 
@@ -416,8 +489,13 @@ app.all('/mcp', authenticateRequest, async (req, res) => {
       logger.info(`Streamable HTTP 会话 ${sessionId} 已建立`);
     }
 
+    // 生成请求ID并存储会话信息
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    requestSessions.set(requestId, { sessionId, binanceAuth });
+
     // 设置响应头
     res.setHeader('Mcp-Session-Id', sessionId);
+    res.setHeader('Mcp-Request-Id', requestId);
 
     // 处理请求
     await transport.handleRequest(req, res, req.body);
@@ -430,9 +508,13 @@ app.all('/mcp', authenticateRequest, async (req, res) => {
 // SSE 端点（向后兼容）
 app.get('/sse', authenticateRequest, async (req, res) => {
   try {
-    const sessionId = `sse_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // 生成基于客户端信息的唯一会话ID
+    const clientIP = req.ip || req.connection.remoteAddress || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const clientId = `${clientIP}_${userAgent}`.replace(/[^a-zA-Z0-9_]/g, '_');
+    const sessionId = `sse_${clientId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // logger.info('sse req.headers=======', req.headers, 'sessionId===', sessionId);
+    logger.info('sessionId===', sessionId, 'clientIP===', clientIP);
     const binanceAuth = (req as any).binanceAuth;
 
     // 创建 Binance 客户端
@@ -440,16 +522,40 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 
     // 创建 SSE 传输
     const transport = new SSEServerTransport('/messages', res);
-    transports.sse[sessionId] = transport;
+
+    // 使用基于客户端信息的唯一键存储传输对象
+    const transportKey = `${clientId}_${Date.now()}`;
+    transports.sse[transportKey] = transport;
 
     // 将会话信息存储到传输对象的自定义属性中
     (transport as any)._sessionId = sessionId;
     (transport as any)._binanceAuth = binanceAuth;
+    (transport as any)._transportKey = transportKey;
+
+    // 将传输对象和会话信息绑定
+    transportSessionMap.set(transport, { sessionId, binanceAuth });
+
+    // 生成请求ID并存储会话信息
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    requestSessions.set(requestId, { sessionId, binanceAuth });
+
+    // 更新活跃会话存储
+    activeSessions.set(sessionId, { sessionId, binanceAuth, transport });
 
     res.on('close', () => {
-      delete transports.sse[sessionId];
+      delete transports.sse[transportKey];
       sessionClients.delete(sessionId);
-      //   logger.info(`SSE 会话 ${sessionId} 已关闭`);
+      // 清理传输对象映射
+      transportSessionMap.delete(transport);
+      // 清理活跃会话存储
+      activeSessions.delete(sessionId);
+      // 清理请求级别的会话存储
+      for (const [reqId, sessionInfo] of requestSessions.entries()) {
+        if (sessionInfo.sessionId === sessionId) {
+          requestSessions.delete(reqId);
+        }
+      }
+      logger.info(`SSE 会话 ${sessionId} 已关闭`);
     });
 
     await server.connect(transport);
@@ -464,10 +570,38 @@ app.get('/sse', authenticateRequest, async (req, res) => {
 app.post('/messages', async (req, res) => {
   try {
     const sessionId = req.query.sessionId as string;
-    const transport = transports.sse[sessionId];
+
+    // 查找对应的传输对象
+    let transport: any = null;
+    for (const [key, t] of Object.entries(transports.sse)) {
+      if ((t as any)._sessionId === sessionId) {
+        transport = t;
+        break;
+      }
+    }
 
     if (transport) {
-      await transport.handlePostMessage(req, res, req.body);
+      // 设置当前请求上下文
+      const binanceAuth = (transport as any)._binanceAuth;
+      if (binanceAuth) {
+        currentRequestContext = { sessionId, binanceAuth };
+        // 更新活跃会话存储
+        activeSessions.set(sessionId, { sessionId, binanceAuth, transport });
+        // 更新传输对象映射
+        transportSessionMap.set(transport, { sessionId, binanceAuth });
+        logger.info(`设置当前请求上下文: ${sessionId}`);
+      }
+
+      // 使用AsyncLocalStorage来确保异步上下文传递
+      await asyncLocalStorage.run({ sessionId, binanceAuth }, async () => {
+        try {
+          await transport.handlePostMessage(req, res, req.body);
+        } finally {
+          // 清理当前请求上下文
+          currentRequestContext = null;
+          logger.info(`清理当前请求上下文: ${sessionId}`);
+        }
+      });
     } else {
       res.status(400).json({ error: '未找到对应的会话' });
     }
