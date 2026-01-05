@@ -12,9 +12,13 @@ import { createSpotTools, handleSpotTool } from './tools/spot.js';
 import { createFuturesTools, handleFuturesTool } from './tools/futures.js';
 import { createMarketTools, handleMarketTool } from './tools/market.js';
 import { createAdvancedTools, handleAdvancedTool } from './tools/advanced.js';
+import { createObservabilityTools } from './tools/observability.js';
 
 // 服务器模式
 const serverMode = env.server.mode || 'stdio';
+
+// Observability tools registry (uses shared HttpClient with caching)
+const observabilityRegistry = createObservabilityTools();
 
 // 获取所有工具
 function getAllTools(binanceClient: BinanceClient) {
@@ -24,6 +28,7 @@ function getAllTools(binanceClient: BinanceClient) {
     ...createFuturesTools(binanceClient),
     ...createMarketTools(binanceClient),
     ...createAdvancedTools(binanceClient),
+    ...observabilityRegistry.tools,
   ];
 }
 
@@ -82,6 +87,11 @@ async function handleTool(name: string, args: any, binanceClient: BinanceClient)
       name.startsWith('binance_get_')
     ) {
       return await handleAdvancedTool(name, args, binanceClient);
+    }
+
+    // Observability + provenance tools
+    if (observabilityRegistry.handlers[name]) {
+      return await observabilityRegistry.handlers[name](args);
     }
 
     throw new McpError(ErrorCode.MethodNotFound, `未知的工具: ${name}`);
