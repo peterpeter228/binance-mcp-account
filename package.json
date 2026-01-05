@@ -20,7 +20,9 @@
     "test:server": "node scripts/test-server.js",
     "test:http": "node test-simple-http.js",
     "test:demo": "node test-demo.js",
-    "validate": "node scripts/validate-tools.cjs"
+    "validate": "node scripts/validate-tools.cjs",
+    "test:unit": "tsx tests/observability.test.ts",
+    "test": "npm run test:unit"
   },
   "keywords": [
     "binance",
@@ -37,12 +39,12 @@
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
+    "node-fetch": "^3.3.2",
     "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.10.0",
-    "node-fetch": "^3.3.2",
     "tsx": "^4.20.5",
     "typescript": "^5.3.0"
   }
