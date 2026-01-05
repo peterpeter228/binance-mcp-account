@@ -7,11 +7,13 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
+    "start:http": "SERVER_MODE=http node build/server.js",
     "start:sse": "SERVER_MODE=sse node build/server.js",
     "start:multi-mode": "SERVER_MODE=multi-mode node build/server.js",
     "start:streamable-http": "SERVER_MODE=streamable-http node build/server.js",
     "dev": "tsc --watch",
     "dev:run": "tsx src/index.ts",
+    "dev:http": "SERVER_MODE=http tsx src/server.ts",
     "dev:sse": "SERVER_MODE=sse tsx src/server.ts",
     "dev:multi-mode": "SERVER_MODE=multi-mode tsx src/server.ts",
     "dev:streamable-http": "SERVER_MODE=streamable-http tsx src/server.ts",
