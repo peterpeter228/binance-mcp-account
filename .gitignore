@@ -11,6 +11,9 @@ build/
 
 # 测试和临时文件
 test-*.js
+tests/**/*.js
+tests/**/*.d.ts
+tests/**/*.map
 *.tmp
 
 # IDE和编辑器

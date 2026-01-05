@@ -8,7 +8,7 @@ export enum LogLevel {
   ERROR = 3,
 }
 
-class Logger {
+export class Logger {
   private level: LogLevel;
   private logFile: string;
   private logStream: fs.WriteStream | null = null;

@@ -3,21 +3,18 @@
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError } from '@modelcontextprotocol/sdk/types.js';
-import * as dotenv from 'dotenv';
 
 import { BinanceClient } from './api/client.js';
-import { logger } from './utils/logger.js';
+import { env } from './infra/env.js';
+import { logger } from './infra/logger.js';
 import { createAccountTools, handleAccountTool } from './tools/account.js';
 import { createSpotTools, handleSpotTool } from './tools/spot.js';
 import { createFuturesTools, handleFuturesTool } from './tools/futures.js';
 import { createMarketTools, handleMarketTool } from './tools/market.js';
 import { createAdvancedTools, handleAdvancedTool } from './tools/advanced.js';
 
-// 加载环境变量
-dotenv.config();
-
 // 服务器模式
-const serverMode = process.env.SERVER_MODE || 'stdio';
+const serverMode = env.server.mode || 'stdio';
 
 // 获取所有工具
 function getAllTools(binanceClient: BinanceClient) {
@@ -106,33 +103,37 @@ async function main() {
   if (serverMode === 'stdio') {
     // stdio模式
     await startStdioServer();
-  } else if (serverMode === 'sse' || serverMode === 'streamable-http') {
+  } else if (serverMode === 'sse' || serverMode === 'streamable-http' || serverMode === 'multi-mode') {
     // HTTP模式 - 导入并启动HTTP服务器
-    const { startHttpServer } = await import('./server.js');
+    const { startHttpServer } = await import('./server/mcp_server.js');
     await startHttpServer();
   } else {
     logger.error(`不支持的服务器模式: ${serverMode}`);
-    logger.error('支持的模式: stdio, sse, streamable-http');
+    logger.error('支持的模式: stdio, sse, streamable-http, multi-mode');
     process.exit(1);
   }
 }
 
 async function startStdioServer() {
   // 验证必要的环境变量
-  const requiredEnvVars = ['BINANCE_API_KEY', 'BINANCE_SECRET_KEY'];
-  for (const envVar of requiredEnvVars) {
-    if (!process.env[envVar]) {
-      logger.error(`缺少必要的环境变量: ${envVar}`);
-      logger.error('请在Claude Desktop配置文件中设置API密钥');
-      process.exit(1);
-    }
+  const missingEnvVars: string[] = [];
+  if (!env.binance.apiKey) {
+    missingEnvVars.push('BINANCE_API_KEY');
+  }
+  if (!env.binance.apiSecret) {
+    missingEnvVars.push('BINANCE_SECRET_KEY');
+  }
+  if (missingEnvVars.length > 0) {
+    logger.error(`缺少必要的环境变量: ${missingEnvVars.join(', ')}`);
+    logger.error('请在Claude Desktop配置文件中设置API密钥');
+    process.exit(1);
   }
 
   // 初始化Binance客户端
   const binanceConfig = {
-    apiKey: process.env.BINANCE_API_KEY!,
-    apiSecret: process.env.BINANCE_SECRET_KEY!,
-    testnet: process.env.BINANCE_TESTNET === 'true',
+    apiKey: env.binance.apiKey,
+    apiSecret: env.binance.apiSecret,
+    testnet: env.binance.testnet,
   };
 
   let binanceClient: BinanceClient;
