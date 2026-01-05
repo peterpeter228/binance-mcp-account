@@ -23,6 +23,9 @@ test-*.js
 Thumbs.db
 *.orig
 
+# Local data files
+data/
+
 # 敏感配置文件（示例配置保留）
 *config_backup*
 

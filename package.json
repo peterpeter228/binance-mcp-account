@@ -16,6 +16,7 @@
     "dev:multi-mode": "SERVER_MODE=multi-mode tsx src/server.ts",
     "dev:streamable-http": "SERVER_MODE=streamable-http tsx src/server.ts",
     "clean": "rm -rf build",
+    "test": "jest",
     "test:connection": "node scripts/test-connection.js",
     "test:server": "node scripts/test-server.js",
     "test:http": "node test-simple-http.js",
@@ -33,6 +34,7 @@
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.5",
+    "better-sqlite3": "^12.5.0",
     "binance-api-node": "^0.12.7",
     "crypto": "^1.0.1",
     "dotenv": "^16.3.1",
@@ -41,8 +43,11 @@
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.10.0",
+    "jest": "^30.2.0",
     "node-fetch": "^3.3.2",
+    "ts-jest": "^29.4.6",
     "tsx": "^4.20.5",
     "typescript": "^5.3.0"
   }
