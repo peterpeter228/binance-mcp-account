@@ -5,7 +5,7 @@
 一个基于 Binance 官方 API 的 MCP（Model Context Protocol）服务器，支持统一账户（Portfolio Margin）的现货和合约交易功能。通过用户友好的对话界面，让复杂的加密货币交易变得简单直观。
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/yourusername/binance-mcp-server)
-[![Node.js](https://img.shields.io/badge/node.js-%3E%3D18-green.svg)](https://nodejs.org)
+[![Node.js](https://img.shields.io/badge/node.js-%3E%3D20-green.svg)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/typescript-5.0+-blue.svg)](https://www.typescriptlang.org)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
@@ -50,6 +50,31 @@
 - 24 小时价格变动统计
 - 交易所信息查询
 
+## 📂 目录结构
+
+```text
+.
+├── .env.example
+├── package.json
+├── tsconfig.json
+├── README.md
+├── src/
+│   ├── index.ts                # STDIO 入口
+│   ├── server/
+│   │   └── mcp_server.ts       # HTTP + SSE 入口
+│   ├── infra/                  # 环境、日志等共享基础设施
+│   ├── tools/                  # MCP 工具实现
+│   ├── api/
+│   ├── types/
+│   └── utils/
+└── tests/
+    ├── server/
+    └── tools/
+```
+
+- HTTP/SSE/Streamable HTTP 入口统一为 `src/server/mcp_server.ts`，脚本 `npm run start`, `npm run start:sse` 等将使用该文件。
+- 共享基础设施（日志、配置）集中在 `src/infra`，方便在工具和服务器之间复用。
+
 ## 快速开始
 
 ### 1. 安装和构建
@@ -62,7 +87,27 @@ npm install
 npm run build
 ```
 
-### 2. 获取 Binance API 密钥
+### 2. 配置环境变量 (.env)
+
+使用模板文件创建本地配置：
+
+```bash
+cp .env.example .env
+```
+
+核心变量速览：
+
+- **Binance**：`BINANCE_API_KEY`、`BINANCE_SECRET_KEY`、`BINANCE_TESTNET`、`BINANCE_API_URL`
+- **Dune Analytics**：`DUNE_API_KEY`
+- **公共/自托管 RPC**：`EVM_RPC_URL`、`BITCOIN_RPC_URL`、`SOLANA_RPC_URL`、`POLYGON_RPC_URL`
+- **行情/情绪数据源**：`DEFI_LLAMA_BASE_URL`、`FEAR_GREED_INDEX_URL`
+- **GDELT 新闻流**：`GDELT_API_KEY`、`GDELT_QUERY_ENDPOINT`
+- **本地持久化**：`SQLITE_DB_PATH`
+- **服务器与日志**：`SERVER_HOST`、`SERVER_PORT`、`SERVER_MODE`（`sse`/`streamable-http`/`multi-mode`）、`LOG_LEVEL`、`LOG_FORMAT`、`ENABLE_HTTP_LOGS`
+
+> 建议在 Node 20 环境下运行，并保持 `.env` 不被提交到代码仓库。
+
+### 3. 获取 Binance API 密钥
 
 1. 访问 [Binance API 管理页面](https://www.binance.com/cn/my/settings/api-management)
 2. 创建新的 API 密钥
@@ -72,7 +117,7 @@ npm run build
    - ✅ 统一账户
    - ✅ 读取权限
 
-### 3. 配置 Claude Desktop
+### 4. 配置 Claude Desktop
 
 这是 MCP 的标准配置方式，API 密钥直接在 Claude Desktop 配置文件中设置。
 
